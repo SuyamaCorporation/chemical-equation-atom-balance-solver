@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>化学反応式係数合わせゲーム</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center p-4">
+<h1 class="text-2xl font-bold mb-1 text-center">⚗️ 化学反応式 係数合わせ</h1>
+<p class="text-gray-400 text-sm mb-4 text-center">左右の原子数が合うように係数スライダーを調整してください</p>
+
+<div id="equationDisplay" class="text-center text-xl font-mono font-bold mb-4 bg-gray-800 rounded-xl px-6 py-4 w-full max-w-lg"></div>
+<div id="atomCount" class="bg-gray-800 rounded-xl p-4 w-full max-w-lg mb-4"></div>
+<div id="coeffControls" class="w-full max-w-lg mb-4"></div>
+<div id="feedback" class="text-center text-lg font-bold min-h-7 mb-3"></div>
+
+<div class="flex gap-6 text-sm mb-4">
+  <span>スコア: <span id="score" class="text-yellow-400 font-bold">0</span></span>
+  <span>問題: <span id="qnum" class="text-blue-400 font-bold">1</span> / 5</span>
+</div>
+<button id="nextBtn" class="bg-indigo-600 hover:bg-indigo-500 px-6 py-2 rounded-lg font-bold transition hidden">次の問題 →</button>
+<button id="hintBtn" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm transition mt-2">💡 ヒント</button>
+<div class="mt-4 text-xs text-gray-600 text-center max-w-xs">
+  各物質の前の数字(係数)を変えて、左辺と右辺の各元素の原子数を等しくする
+</div>
+
+<script>
+const EQUATIONS=[
+  {name:'水素燃焼',lhs:[{f:'H₂',atoms:{H:2}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'H₂O',atoms:{H:2,O:1}}],ans:[2,1,2]},
+  {name:'炭素燃焼',lhs:[{f:'C',atoms:{C:1}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'CO₂',atoms:{C:1,O:2}}],ans:[1,1,1]},
+  {name:'メタン燃焼',lhs:[{f:'CH₄',atoms:{C:1,H:4}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'CO₂',atoms:{C:1,O:2}},{f:'H₂O',atoms:{H:2,O:1}}],ans:[1,2,1,2]},
+  {name:'塩化ナトリウム生成',lhs:[{f:'Na',atoms:{Na:1}},{f:'Cl₂',atoms:{Cl:2}}],rhs:[{f:'NaCl',atoms:{Na:1,Cl:1}}],ans:[2,1,2]},
+  {name:'アンモニア合成',lhs:[{f:'N₂',atoms:{N:2}},{f:'H₂',atoms:{H:2}}],rhs:[{f:'NH₃',atoms:{N:1,H:3}}],ans:[1,3,2]},
+  {name:'鉄と酸素',lhs:[{f:'Fe',atoms:{Fe:1}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'Fe₂O₃',atoms:{Fe:2,O:3}}],ans:[4,3,2]},
+  {name:'炭酸分解',lhs:[{f:'CaCO₃',atoms:{Ca:1,C:1,O:3}}],rhs:[{f:'CaO',atoms:{Ca:1,O:1}},{f:'CO₂',atoms:{C:1,O:2}}],ans:[1,1,1]},
+  {name:'塩素と水素',lhs:[{f:'H₂',atoms:{H:2}},{f:'Cl₂',atoms:{Cl:2}}],rhs:[{f:'HCl',atoms:{H:1,Cl:1}}],ans:[1,1,2]},
+  {name:'エタン燃焼',lhs:[{f:'C₂H₆',atoms:{C:2,H:6}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'CO₂',atoms:{C:1,O:2}},{f:'H₂O',atoms:{H:2,O:1}}],ans:[2,7,4,6]},
+  {name:'ブドウ糖燃焼',lhs:[{f:'C₆H₁₂O₆',atoms:{C:6,H:12,O:6}},{f:'O₂',atoms:{O:2}}],rhs:[{f:'CO₂',atoms:{C:1,O:2}},{f:'H₂O',atoms:{H:2,O:1}}],ans:[1,6,6,6]},
+];
+
+let qidx=0,score=0,coeffs=[],currentEq;
+const qSet=[];
+
+function pickQuestions(){
+  const all=[...EQUATIONS];
+  for(let i=all.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[all[i],all[j]]=[all[j],all[i]];}
+  return all.slice(0,5);
+}
+
+function loadQuestion(eq){
+  currentEq=eq;
+  const total=eq.lhs.length+eq.rhs.length;
+  coeffs=new Array(total).fill(1);
+  renderEquation();
+  renderControls();
+  document.getElementById('feedback').textContent='';
+  document.getElementById('nextBtn').classList.add('hidden');
+  document.getElementById('hintBtn').classList.remove('hidden');
+}
+
+function renderEquation(){
+  const eq=currentEq;
+  const lhsStr=eq.lhs.map((m,i)=>`${coeffs[i]>1?coeffs[i]:''}${m.f}`).join(' + ');
+  const rhsStr=eq.rhs.map((m,i)=>`${coeffs[eq.lhs.length+i]>1?coeffs[eq.lhs.length+i]:''}${m.f}`).join(' + ');
+  document.getElementById('equationDisplay').innerHTML=`
+    <span class="text-blue-300">${lhsStr}</span>
+    <span class="text-gray-400"> → </span>
+    <span class="text-green-300">${rhsStr}</span>
+    <span class="ml-2 text-xs text-gray-500">(${eq.name})</span>
+  `;
+
+  // Count atoms
+  const lAtoms={},rAtoms={};
+  eq.lhs.forEach((m,i)=>{ Object.entries(m.atoms).forEach(([el,n])=>{ lAtoms[el]=(lAtoms[el]||0)+n*coeffs[i]; }); });
+  eq.rhs.forEach((m,i)=>{ const ci=eq.lhs.length+i; Object.entries(m.atoms).forEach(([el,n])=>{ rAtoms[el]=(rAtoms[el]||0)+n*coeffs[ci]; }); });
+
+  const els=[...new Set([...Object.keys(lAtoms),...Object.keys(rAtoms)])];
+  let html='<div class="flex flex-wrap gap-3">';
+  for(let el of els){
+    const l=lAtoms[el]||0, r=rAtoms[el]||0;
+    const ok=l===r;
+    html+=`<div class="flex flex-col items-center px-3 py-1 rounded ${ok?'bg-green-900':'bg-red-900'}">
+      <span class="font-bold ${ok?'text-green-300':'text-red-300'}">${el}</span>
+      <span class="text-sm">${l} = ${r}</span>
+    </div>`;
+  }
+  html+='</div>';
+  document.getElementById('atomCount').innerHTML=html;
+
+  // Check balanced
+  const balanced=els.every(el=>(lAtoms[el]||0)===(rAtoms[el]||0));
+  if(balanced){
+    // Check if it matches the standard answer (coefficients proportional to ans)
+    document.getElementById('feedback').textContent='⚗️ 係数が合いました！✅';
+    document.getElementById('feedback').className='text-center text-lg font-bold min-h-7 mb-3 text-green-400';
+    score++;
+    document.getElementById('score').textContent=score;
+    document.getElementById('nextBtn').classList.remove('hidden');
+    document.getElementById('hintBtn').classList.add('hidden');
+  }
+}
+
+function renderControls(){
+  const eq=currentEq;
+  const all=[...eq.lhs,...eq.rhs];
+  let html='<div class="space-y-2">';
+  all.forEach((m,i)=>{
+    const side=i<eq.lhs.length?'左辺':'右辺';
+    html+=`<div class="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2">
+      <span class="text-sm font-mono w-16 ${i<eq.lhs.length?'text-blue-300':'text-green-300'}">${m.f}</span>
+      <span class="text-xs text-gray-500">${side}</span>
+      <input type="range" data-idx="${i}" min="1" max="8" value="1" class="coeff-slider flex-1 cursor-pointer">
+      <span class="coeff-val font-bold text-yellow-300 w-6 text-center">${coeffs[i]}</span>
+    </div>`;
+  });
+  html+='</div>';
+  document.getElementById('coeffControls').innerHTML=html;
+  document.querySelectorAll('.coeff-slider').forEach(sl=>{
+    sl.addEventListener('input',e=>{
+      const idx=parseInt(e.target.dataset.idx);
+      coeffs[idx]=parseInt(e.target.value);
+      e.target.nextElementSibling.textContent=coeffs[idx];
+      renderEquation();
+    });
+  });
+}
+
+document.getElementById('nextBtn').addEventListener('click',()=>{
+  qidx++;
+  if(qidx>=qSet.length){ document.getElementById('equationDisplay').innerHTML=`<span class="text-yellow-400">🎉 全問終了！スコア: ${score}/5</span>`; document.getElementById('atomCount').innerHTML=''; document.getElementById('coeffControls').innerHTML=''; document.getElementById('nextBtn').classList.add('hidden'); return; }
+  document.getElementById('qnum').textContent=qidx+1;
+  loadQuestion(qSet[qidx]);
+});
+
+document.getElementById('hintBtn').addEventListener('click',()=>{
+  const ans=currentEq.ans;
+  const eq=currentEq;
+  const all=[...eq.lhs,...eq.rhs];
+  document.querySelectorAll('.coeff-slider').forEach((sl,i)=>{
+    if(i<ans.length){ sl.value=ans[i]; coeffs[i]=ans[i]; sl.nextElementSibling.textContent=ans[i]; }
+  });
+  renderEquation();
+});
+
+const qs=pickQuestions();
+qSet.push(...qs);
+loadQuestion(qSet[0]);
+</script>
+</body>
+</html>
